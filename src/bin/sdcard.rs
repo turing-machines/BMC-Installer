@@ -58,6 +58,7 @@ board and reset the BMC.
 ";
 
 const STATUS_LED_PATH: &str = "/sys/class/leds/fp:sys/brightness";
+const KEYS_EVDEV_PATH: &str = "/dev/input/event0";
 
 const ROOTFS_PATH: &str = "/dev/mmcblk0p2";
 const BOOTLOADER_PATH: &str = "/dev/mmcblk0";
@@ -219,10 +220,17 @@ fn wait_forever() -> ! {
 fn wait_for_confirmation() {
     let signals = sync::Arc::new((atomic::AtomicBool::new(false), thread::current()));
     let signals_1 = signals.clone();
+    let signals_2 = signals.clone();
     let mut threads = [
         Some(thread::spawn(move || {
             let (stop_flag, main_thread) = &*signals_1;
             let ret = confirm_prompt(stop_flag);
+            main_thread.unpark();
+            ret
+        })),
+        Some(thread::spawn(move || {
+            let (stop_flag, main_thread) = &*signals_2;
+            let ret = confirm_keypress(stop_flag);
             main_thread.unpark();
             ret
         })),
@@ -264,6 +272,67 @@ fn confirm_prompt(stop_flag: &atomic::AtomicBool) -> bool {
             Ok(0) => return false,
             _ => continue,
         };
+    }
+}
+
+/// Monitor for a key being pressed three times
+fn confirm_keypress(stop_flag: &atomic::AtomicBool) -> bool {
+    const KEYPRESS_TIMEOUT: Duration = Duration::from_millis(500);
+    const KEYPRESS_TIMES: u8 = 3;
+
+    let mut device = match evdev::raw_stream::RawDevice::open(KEYS_EVDEV_PATH) {
+        Ok(device) => device,
+        Err(_) => return false,
+    };
+
+    let mut last_key = None;
+    let mut last_time = None;
+    let mut times_pressed = 0;
+
+    loop {
+        if stop_flag.load(atomic::Ordering::Relaxed) {
+            return false;
+        }
+
+        let events = match device.fetch_events() {
+            Ok(events) => events,
+            Err(_) => return false,
+        };
+
+        for event in events {
+            // Only follow key events
+            let key = match event.kind() {
+                evdev::InputEventKind::Key(key) => key,
+                _ => continue,
+            };
+
+            // All keypresses have to be the same key; start over if the user switched keys
+            if last_key != Some(key) {
+                last_key = Some(key);
+                times_pressed = 0;
+            }
+
+            // Only handle key-up events past this point
+            if event.value() != 0 {
+                continue;
+            }
+
+            // Determine how long has passed since the last key-up event (or None)
+            let timestamp = event.timestamp();
+            let time_elapsed = last_time
+                .replace(timestamp)
+                .and_then(|x| timestamp.duration_since(x).ok());
+
+            // If past the timeout (or None), start over
+            if time_elapsed.map_or(true, |x| x > KEYPRESS_TIMEOUT) {
+                times_pressed = 0;
+            }
+
+            times_pressed += 1;
+            if times_pressed >= KEYPRESS_TIMES {
+                return true;
+            }
+        }
     }
 }
 

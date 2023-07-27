@@ -10,6 +10,7 @@ anyhow = "1.0.*"
 clap = {version="4", features=["derive"]}
 crc = "3.0.*"
 deku = "0.15.*"
+evdev = "0.12.*"
 howudoin = {version="0.1.*", features=["term-line"]}
 income = "0.1.*"
 nix = "0.26.*"
