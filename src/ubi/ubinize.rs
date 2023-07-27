@@ -262,9 +262,8 @@ impl Volume for BasicVolume<'_> {
             VolType::Dynamic => 0,
             VolType::Static => self.estimate_blocks(eb_size), // Guaranteed correct for `Static`
         };
-        let eb_size: u32 = eb_size.into();
-        let data_pad = eb_size % self.alignment;
-        let leb_size = eb_size - data_pad;
+        let data_pad = u32::from(eb_size) % self.alignment;
+        let leb_size = u32::from(eb_size) - data_pad;
 
         let vid = Vid {
             vol_type: self.vtype,
@@ -276,7 +275,7 @@ impl Volume for BasicVolume<'_> {
         };
 
         let record = VolTableRecord {
-            reserved_pebs: used_ebs, // May get overridden later
+            reserved_pebs: self.estimate_blocks(eb_size),
             alignment: self.alignment.into(),
             data_pad,
             vol_type: self.vtype,
