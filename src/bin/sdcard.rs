@@ -276,13 +276,21 @@ fn main() -> ! {
     let mut bootloader = bootloader.take(BOOTLOADER_SIZE);
 
     // Define the UBI image
-    let ubi_volumes: [Box<dyn Volume + '_>; 1] = [Box::new(
-        BasicVolume::new(VolType::Static)
-            .name("rootfs")
-            .skipcheck() // Opening the volume at boot takes ~10sec. longer without this flag set
-            .size(rootfs_size)
-            .image(&mut rootfs),
-    )];
+    let ubi_volumes: [Box<dyn Volume + '_>; 2] = [
+        Box::new(
+            BasicVolume::new(VolType::Dynamic)
+                .id(0)
+                .name("uboot-env")
+                .size(65536),
+        ),
+        Box::new(
+            BasicVolume::new(VolType::Static)
+                .name("rootfs")
+                .skipcheck() // Opening the volume at boot takes ~10sec. longer without this flag
+                .size(rootfs_size)
+                .image(&mut rootfs),
+        ),
+    ];
 
     // These are the tasks to be run once the user confirms the operation:
     type TaskFn<'a> = dyn FnOnce(&howudoin::Tx) -> anyhow::Result<()> + 'a;
