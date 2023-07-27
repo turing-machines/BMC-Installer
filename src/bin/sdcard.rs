@@ -18,7 +18,7 @@ use std::{
     fs,
     io::{self, Read, Seek},
     path::Path,
-    sync::mpsc,
+    sync::{self, atomic, mpsc},
     thread,
     time::Duration,
 };
@@ -217,18 +217,46 @@ fn wait_forever() -> ! {
 ///
 /// This spawns one thread each, for both methods.
 fn wait_for_confirmation() {
-    let threads = [thread::spawn(confirm_prompt)];
-    threads.into_iter().for_each(|x| {
-        let _ = x.join();
-    });
+    let signals = sync::Arc::new((atomic::AtomicBool::new(false), thread::current()));
+    let signals_1 = signals.clone();
+    let mut threads = [
+        Some(thread::spawn(move || {
+            let (stop_flag, main_thread) = &*signals_1;
+            let ret = confirm_prompt(stop_flag);
+            main_thread.unpark();
+            ret
+        })),
+    ];
+
+    thread::park();
+
+    loop {
+        for thread in &mut threads {
+            if thread.as_ref().map_or(false, |thread| thread.is_finished()) {
+                let ret = thread
+                    .take()
+                    .unwrap()
+                    .join()
+                    .expect("thread should not panic");
+                if ret {
+                    signals.0.store(true, atomic::Ordering::Relaxed);
+                    return;
+                }
+                thread::park();
+            }
+        }
+    }
 }
 
 /// Repeatedly nag the user to type "CONFIRM"
-fn confirm_prompt() -> bool {
+fn confirm_prompt(stop_flag: &atomic::AtomicBool) -> bool {
     const CONFIRM_KEYWORD: &str = "CONFIRM";
 
     let mut input = String::new();
     loop {
+        if stop_flag.load(atomic::Ordering::Relaxed) {
+            return false;
+        }
         eprint!("Type \"{CONFIRM_KEYWORD}\" to continue: ");
         input.clear();
         match io::stdin().read_line(&mut input) {
