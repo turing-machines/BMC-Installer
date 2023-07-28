@@ -322,7 +322,7 @@ where
         // selected until the logical block can be written.
         'write_loop: loop {
             // Select physical block to write into
-            let (block_id, mut block, ebt_entry, ec) = loop {
+            let (block_id, ebt_entry, ec) = loop {
                 let block_id = block_ordering
                     .next()
                     .ok_or(anyhow::anyhow!("Flash is full"))?;
@@ -332,7 +332,7 @@ where
                     _ => unreachable!(),
                 };
                 match nand.block(block_id)? {
-                    Some(block) => break (block_id, block, ebt_entry, ec),
+                    Some(_) => break (block_id, ebt_entry, ec),
                     None => {
                         // Guess it went bad? Try again...
                         *ebt_entry = BlockContent::Bad;
@@ -345,6 +345,7 @@ where
             // mark the block bad.
             let mut tried_erase = false;
             loop {
+                let mut block = nand.block(block_id)?.expect("block went bad on its own");
                 if block.program(1, &data).is_ok() {
                     *ebt_entry = BlockContent::EcData(ec, Some(vid));
 
@@ -360,12 +361,6 @@ where
                 } else {
                     // Erase the block before trying again.
                     FormatAction::Erase(ec.inc_ec()).execute(block, ebt_entry)?;
-
-                    // Get the `block` back (or has it been marked bad when trying to erase?)
-                    block = match nand.block(block_id)? {
-                        Some(block) => block,
-                        None => break,
-                    };
                     tried_erase = true;
                 }
             }
