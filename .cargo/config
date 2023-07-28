@@ -1,0 +1,7 @@
+[target.armv7-unknown-linux-gnueabi]
+rustflags = [
+	"-C", "lto=yes",
+	"-C", "embed-bitcode=yes",
+	"-C", "opt-level=z",
+	"-C", "target-feature=+crt-static",
+]
