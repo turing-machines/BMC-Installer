@@ -25,7 +25,7 @@ pub fn purge_boot0<N: Nand>(nand: &mut N) -> anyhow::Result<bool> {
     for block_index in 0..nand.get_layout().blocks {
         if let Some(mut block) = nand.block(block_index)? {
             block.read(0, &mut page_buf)?;
-            if is_boot0(&page_buf).is_some_and(|x| x) {
+            if is_boot0(&page_buf) == Some(true) {
                 block.erase()?;
                 any_erased = true;
             }
