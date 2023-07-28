@@ -12,5 +12,6 @@ crc = "3.0.*"
 deku = "0.15.*"
 evdev = "0.12.*"
 howudoin = {version="0.1.*", features=["term-line"]}
+i2c-linux = "0.1.*"
 income = "0.1.*"
 nix = "0.26.*"
