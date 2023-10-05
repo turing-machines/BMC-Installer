@@ -4,7 +4,6 @@ use super::{Nand, NandBlock, NandLayout};
 
 use anyhow::{bail, ensure};
 
-use std::cell::RefCell;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::mem::MaybeUninit;
@@ -14,17 +13,17 @@ use std::path::Path;
 /// NAND flash that wraps an open /dev/mtdX file
 #[derive(Debug)]
 pub struct MtdNand {
-    file: RefCell<File>,
+    file: File,
     layout: NandLayout,
 }
 
 impl MtdNand {
     /// Open an `mtd` device, by path (e.g. "/dev/mtd0")
     pub fn open<P: AsRef<Path>>(path: P) -> anyhow::Result<Self> {
-        let file: RefCell<File> = File::options().read(true).write(true).open(path)?.into();
+        let file = File::options().read(true).write(true).open(path)?;
         let layout = unsafe {
             let mut info = MaybeUninit::<ioctl::mtd_info_user>::uninit();
-            ioctl::memgetinfo(file.borrow().as_raw_fd(), info.as_mut_ptr())?;
+            ioctl::memgetinfo(file.as_raw_fd(), info.as_mut_ptr())?;
             info.assume_init()
         }
         .try_into()?;
@@ -59,7 +58,7 @@ impl Nand for MtdNand {
 
         let block_size = self.layout.pages_per_block * self.layout.bytes_per_page as u32;
         let block_base: u64 = (block_size * index) as u64;
-        let bad = unsafe { ioctl::memgetbadblock(self.file.borrow().as_raw_fd(), &block_base)? };
+        let bad = unsafe { ioctl::memgetbadblock(self.file.as_raw_fd(), &block_base)? };
         if bad == 0 {
             Ok(Some(MtdBlock { nand: self, index }))
         } else {
@@ -116,11 +115,11 @@ impl NandBlock for MtdBlock<'_> {
     }
     fn read(&self, start_page: u32, content: &mut [u8]) -> anyhow::Result<()> {
         let offset = self.offset_for(start_page, content.len())?;
-        Ok(self.nand.file.borrow_mut().read_exact_at(content, offset)?)
+        Ok(self.nand.file.read_exact_at(content, offset)?)
     }
     fn program(&mut self, start_page: u32, content: &[u8]) -> anyhow::Result<()> {
         let offset = self.offset_for(start_page, content.len())?;
-        Ok(self.nand.file.borrow_mut().write_all_at(content, offset)?)
+        Ok(self.nand.file.write_all_at(content, offset)?)
     }
     fn erase(&mut self) -> anyhow::Result<()> {
         let erase_info = ioctl::erase_info_user {
@@ -128,14 +127,14 @@ impl NandBlock for MtdBlock<'_> {
             length: self.size(),
         };
         unsafe {
-            ioctl::memerase(self.nand.file.borrow().as_raw_fd(), &erase_info)?;
+            ioctl::memerase(self.nand.file.as_raw_fd(), &erase_info)?;
         }
         Ok(())
     }
     fn mark_bad(self) -> anyhow::Result<()> {
         let block_base: u64 = self.base() as u64;
         unsafe {
-            ioctl::memsetbadblock(self.nand.file.borrow().as_raw_fd(), &block_base)?;
+            ioctl::memsetbadblock(self.nand.file.as_raw_fd(), &block_base)?;
         }
         Ok(())
     }
