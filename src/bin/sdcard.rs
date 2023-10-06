@@ -14,7 +14,6 @@ use nix::errno::Errno;
 use nix::mount::{mount, MsFlags};
 
 use std::{
-    cell::RefCell,
     fs,
     io::{self, Read, Seek},
     path::Path,
@@ -25,7 +24,7 @@ use std::{
 
 use bmc_installer::{
     format, image,
-    nand::mtd::MtdNand,
+    nand::{mtd::MtdNand, Nand},
     ubi::{
         self,
         ubinize::{BasicVolume, Volume},
@@ -461,9 +460,8 @@ fn main() -> ! {
     };
 
     // Open the NAND flash partitions
-    let nand_boot = RefCell::new(MtdNand::open_named("boot").unwrap_or_else(|e| init_error(e)));
-    let nand_ubi = RefCell::new(MtdNand::open_named("ubi").unwrap_or_else(|e| init_error(e)));
-    let ebt_cell: RefCell<Option<ubi::Ebt>> = RefCell::new(None);
+    let nand_boot = MtdNand::open_named("boot").unwrap_or_else(|e| init_error(e));
+    let nand_ubi = MtdNand::open_named("ubi").unwrap_or_else(|e| init_error(e));
 
     // Locate the rootfs and bootloader to be written
     let mut rootfs = fs::File::open(ROOTFS_PATH).unwrap_or_else(|e| init_error(e.into()));
@@ -473,10 +471,10 @@ fn main() -> ! {
     bootloader
         .seek(io::SeekFrom::Start(BOOTLOADER_OFFSET))
         .unwrap_or_else(|e| init_error(e.into()));
-    let mut bootloader = bootloader.take(BOOTLOADER_SIZE);
+    let bootloader = bootloader.take(BOOTLOADER_SIZE);
 
     // Define the UBI image
-    let ubi_volumes: [Box<dyn Volume + '_>; 2] = [
+    let ubi_volumes: Vec<Box<dyn Volume + '_>> = vec![
         Box::new(
             BasicVolume::new(VolType::Dynamic)
                 .id(0)
@@ -493,54 +491,45 @@ fn main() -> ! {
     ];
 
     // These are the tasks to be run once the user confirms the operation:
-    type TaskFn<'a> = dyn FnOnce(&howudoin::Tx) -> anyhow::Result<()> + 'a;
-    let tasks: [(&str, Box<TaskFn<'_>>); 5] = [
-        (
-            "Purging boot0 code",
-            Box::new(|rpt| {
-                let purged = format::purge_boot0(&mut *nand_boot.borrow_mut())?;
-                if purged {
-                    rpt.add_info("Legacy Allwinner boot code has been found and erased");
-                }
-                Ok(())
-            }),
-        ),
-        (
-            "Analyzing UBI partition",
-            Box::new(|_| {
-                let ebt = ubi::scan_blocks(&mut *nand_ubi.borrow_mut())?;
-                *ebt_cell.borrow_mut() = Some(ebt);
-                Ok(())
-            }),
-        ),
-        (
-            "Formatting UBI partition",
-            Box::new(|_| {
-                ubi::format(
-                    &mut *nand_ubi.borrow_mut(),
-                    ebt_cell.borrow_mut().as_mut().unwrap(),
-                )?;
-                Ok(())
-            }),
-        ),
-        (
-            "Writing rootfs",
-            Box::new(|_| {
-                ubi::write_volumes(
-                    &mut *nand_ubi.borrow_mut(),
-                    ebt_cell.borrow_mut().as_mut().unwrap(),
-                    ubi_volumes,
-                )?;
-                Ok(())
-            }),
-        ),
-        (
-            "Updating bootloader",
-            Box::new(|_| {
-                format::raw::write_raw_image(&mut *nand_boot.borrow_mut(), &mut bootloader, false)?;
-                Ok(())
-            }),
-        ),
+    struct TaskCtx<'a, N: Nand, R: Read> {
+        rpt: howudoin::Tx,
+        nand_boot: N,
+        nand_ubi: N,
+        ebt: Option<ubi::Ebt>,
+        ubi_volumes: Vec<Box<dyn Volume + 'a>>,
+        bootloader: R,
+    }
+    type TaskFn<Ctx> = fn(&mut Ctx) -> anyhow::Result<()>;
+    let tasks: [(&str, TaskFn<TaskCtx<'_, _, _>>); 5] = [
+        ("Purging boot0 code", |ctx| {
+            let purged = format::purge_boot0(&mut ctx.nand_boot)?;
+            if purged {
+                ctx.rpt
+                    .add_info("Legacy Allwinner boot code has been found and erased");
+            }
+            Ok(())
+        }),
+        ("Analyzing UBI partition", |ctx| {
+            let ebt = ubi::scan_blocks(&mut ctx.nand_ubi)?;
+            ctx.ebt = Some(ebt);
+            Ok(())
+        }),
+        ("Formatting UBI partition", |ctx| {
+            ubi::format(&mut ctx.nand_ubi, ctx.ebt.as_mut().unwrap())?;
+            Ok(())
+        }),
+        ("Writing rootfs", |ctx| {
+            ubi::write_volumes(
+                &mut ctx.nand_ubi,
+                ctx.ebt.as_mut().unwrap(),
+                ctx.ubi_volumes.split_off(0),
+            )?;
+            Ok(())
+        }),
+        ("Updating bootloader", |ctx| {
+            format::raw::write_raw_image(&mut ctx.nand_boot, &mut ctx.bootloader, false)?;
+            Ok(())
+        }),
     ];
 
     // Ready...
@@ -553,12 +542,20 @@ fn main() -> ! {
     let rpt = howudoin::new()
         .label("Installing BMC firmware")
         .set_len(u64::try_from(tasks.len()).ok());
+    let mut ctx = TaskCtx {
+        rpt,
+        nand_boot,
+        nand_ubi,
+        ebt: None,
+        ubi_volumes,
+        bootloader,
+    };
     let _ = led_tx.send(led::LED_BUSY);
     for (desc, task) in tasks {
-        rpt.desc(desc);
-        rpt.inc();
+        ctx.rpt.desc(desc);
+        ctx.rpt.inc();
 
-        if let Err(error) = task(&rpt) {
+        if let Err(error) = task(&mut ctx) {
             howudoin::disable();
             thread::sleep(Duration::from_millis(10)); // Give howudoin time to shut down
             eprintln!("[-] Installation error:\n{error}");
@@ -567,7 +564,7 @@ fn main() -> ! {
         }
     }
 
-    rpt.finish();
+    ctx.rpt.finish();
     howudoin::disable();
     thread::sleep(Duration::from_millis(10)); // Give howudoin time to shut down
     eprintln!("[+] DONE: Please remove the microSD card and reset the BMC.");
