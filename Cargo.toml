@@ -15,3 +15,12 @@ howudoin = {version="0.1.*", features=["term-line"]}
 i2c-linux = "0.1.*"
 income = "0.1.*"
 nix = "0.26.*"
+usb-gadget = "0.3.0"
+
+[[bin]]
+name= "sdcard"
+path= "src/bin/sdcard.rs"
+
+[[bin]]
+name= "usb_gadget"
+path= "src/bin/usb_gadget.rs"

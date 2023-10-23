@@ -10,19 +10,16 @@
 //! 4. The filesystem starts empty. Essential mountpoints like `/proc` and `/sys` need to be
 //!    established before any meaningful work can be done.
 
-use nix::errno::Errno;
-use nix::mount::{mount, MsFlags};
-
 use std::{
     fs,
     io::{self, Read, Seek},
-    path::Path,
     sync::{self, atomic, mpsc},
     thread,
     time::Duration,
 };
 
 use bmc_installer::{
+    bin_shared::*,
     format, image,
     nand::{mtd::MtdNand, Nand},
     ubi::{
@@ -31,14 +28,6 @@ use bmc_installer::{
         VolType,
     },
 };
-
-const BANNER: &str = r"
- _____ _   _ ____  ___ _   _  ____ 
-|_   _| | | |  _ \|_ _| \ | |/ ___|
-  | | | | | | |_) || ||  \| | |  _ 
-  | | | |_| |  _ < | || |\  | |_| |
-  |_|  \___/|_| \_\___|_| \_|\____|
-";
 
 const INSTRUCTIONS: &str = "\
 This utility will perform a fresh installation of the Turing Pi 2 BMC firmware.
@@ -63,38 +52,6 @@ const ROOTFS_PATH: &str = "/dev/mmcblk0p2";
 const BOOTLOADER_PATH: &str = "/dev/mmcblk0";
 const BOOTLOADER_OFFSET: u64 = 8192; // Boot ROM expects this offset, so it will never change
 const BOOTLOADER_SIZE: u64 = 5 * 64 * 2048;
-
-/// Set up the basic environment (e.g. mount points).
-fn setup_initramfs() -> anyhow::Result<()> {
-    // Handle mounts
-    for (mount_dev, mount_path, mount_type) in [
-        (None, "/dev", "devtmpfs"),
-        (None, "/proc", "proc"),
-        (None, "/sys", "sysfs"),
-    ] {
-        let path = Path::new(mount_path);
-
-        if !path.is_dir() {
-            fs::create_dir(path)?;
-        }
-
-        let result = mount(
-            mount_dev.or(Some(path)),
-            path,
-            Some(mount_type),
-            MsFlags::empty(),
-            None::<&str>,
-        );
-
-        match result {
-            // Ignore EBUSY, which indicates that the mountpoint is already mounted.
-            Err(errno) if errno == Errno::EBUSY => (),
-            r => r?,
-        };
-    }
-
-    Ok(())
-}
 
 /// LED blink patterns
 mod led {
@@ -138,13 +95,37 @@ mod led {
 
     pub const LED_BUSY: &[LedState] = &[
         Custom(Duration::from_millis(66), true, [true, false, false, false]),
-        Custom(Duration::from_millis(66), false, [false, true, false, false]),
+        Custom(
+            Duration::from_millis(66),
+            false,
+            [false, true, false, false],
+        ),
         Custom(Duration::from_millis(66), true, [false, false, true, false]),
-        Custom(Duration::from_millis(66), false, [false, false, false, true]),
-        Custom(Duration::from_millis(66), true, [false, false, false, false]),
-        Custom(Duration::from_millis(66), false, [false, false, false, false]),
-        Custom(Duration::from_millis(66), true, [false, false, false, false]),
-        Custom(Duration::from_millis(66), false, [false, false, false, false]),
+        Custom(
+            Duration::from_millis(66),
+            false,
+            [false, false, false, true],
+        ),
+        Custom(
+            Duration::from_millis(66),
+            true,
+            [false, false, false, false],
+        ),
+        Custom(
+            Duration::from_millis(66),
+            false,
+            [false, false, false, false],
+        ),
+        Custom(
+            Duration::from_millis(66),
+            true,
+            [false, false, false, false],
+        ),
+        Custom(
+            Duration::from_millis(66),
+            false,
+            [false, false, false, false],
+        ),
     ];
 
     pub const LED_DONE: &[LedState] = &[
@@ -252,7 +233,6 @@ fn rtl8370mb_led_thread(rx: mpsc::Receiver<[bool; 4]>) {
         current_bitmaps = new_bitmaps;
     }
 }
-
 
 /// This runs in a thread and manages the LED blinking.
 ///
