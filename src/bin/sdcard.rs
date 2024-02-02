@@ -13,6 +13,8 @@
 use nix::errno::Errno;
 use nix::mount::{mount, MsFlags};
 
+use retry::{delay::Fixed, retry};
+
 use std::{
     fs,
     io::{self, Read, Seek},
@@ -253,7 +255,6 @@ fn rtl8370mb_led_thread(rx: mpsc::Receiver<[bool; 4]>) {
     }
 }
 
-
 /// This runs in a thread and manages the LED blinking.
 ///
 /// Send new blink patterns through the MPSC channel to change the active pattern.
@@ -464,10 +465,16 @@ fn main() -> ! {
     let nand_ubi = MtdNand::open_named("ubi").unwrap_or_else(|e| init_error(e));
 
     // Locate the rootfs and bootloader to be written
-    let mut rootfs = fs::File::open(ROOTFS_PATH).unwrap_or_else(|e| init_error(e.into()));
+    let mut rootfs = retry(Fixed::from_millis(100).take(10), || {
+        fs::File::open(ROOTFS_PATH)
+    })
+    .unwrap_or_else(|e| init_error(e.into()));
     let rootfs_size = image::erofs_size(&mut rootfs).unwrap_or_else(|e| init_error(e));
 
-    let mut bootloader = fs::File::open(BOOTLOADER_PATH).unwrap_or_else(|e| init_error(e.into()));
+    let mut bootloader = retry(Fixed::from_millis(100).take(10), || {
+        fs::File::open(BOOTLOADER_PATH)
+    })
+    .unwrap_or_else(|e| init_error(e.into()));
     bootloader
         .seek(io::SeekFrom::Start(BOOTLOADER_OFFSET))
         .unwrap_or_else(|e| init_error(e.into()));

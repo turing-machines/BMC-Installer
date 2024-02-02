@@ -15,3 +15,4 @@ howudoin = {version="0.1.*", features=["term-line"]}
 i2c-linux = "0.1.*"
 income = "0.1.*"
 nix = "0.26.*"
+retry = "2.0.0"
