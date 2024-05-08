@@ -64,7 +64,7 @@ const KEYS_EVDEV_PATH: &str = "/dev/input/event0";
 const ROOTFS_PATH: &str = "/dev/mmcblk0p2";
 const BOOTLOADER_PATH: &str = "/dev/mmcblk0";
 const BOOTLOADER_OFFSET: u64 = 8192; // Boot ROM expects this offset, so it will never change
-const BOOTLOADER_SIZE: u64 = 5 * 64 * 2048;
+const BOOTLOADER_SIZE: u64 = 6 * 64 * 2048;
 
 /// Set up the basic environment (e.g. mount points).
 fn setup_initramfs() -> anyhow::Result<()> {
