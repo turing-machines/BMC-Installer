@@ -52,7 +52,7 @@ pub fn setup_initramfs() -> anyhow::Result<()> {
 
         match result {
             // Ignore EBUSY, which indicates that the mountpoint is already mounted.
-            Err(errno) if errno == Errno::EBUSY => (),
+            Err(Errno::EBUSY) => (),
             r => r?,
         };
     }
