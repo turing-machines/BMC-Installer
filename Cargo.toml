@@ -6,13 +6,13 @@ edition = "2021"
 license = "Apache-2.0"
 
 [dependencies]
-anyhow = "1.0.*"
-clap = {version="4", features=["derive"]}
-crc = "3.0.*"
-deku = "0.15.*"
-evdev = "0.12.*"
-howudoin = {version="0.1.*", features=["term-line"]}
-i2c-linux = "0.1.*"
-income = "0.1.*"
+anyhow = "1.0.83"
+clap = { version = "4.5.4", features = ["derive"] }
+crc = "3.2.1"
+deku = "0.15.0"
+evdev = "0.12.2"
+howudoin = { version = "0.1.2", features = ["term-line"] }
+i2c-linux = "0.1.2"
+income = "0.1.0"
 nix = "0.26.*"
 retry = "2.0.0"
