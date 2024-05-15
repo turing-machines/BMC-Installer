@@ -1,5 +1,4 @@
 //! Useful traits and other utilities that don't really belong anywhere else.
-
 use std::io::{self, Read};
 
 pub trait ReadExt {
