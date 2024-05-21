@@ -1,3 +1,4 @@
+pub mod board_info;
 pub mod led;
 
 use nix::errno::Errno;
@@ -20,7 +21,7 @@ use crate::{
 
 use self::led::LedState;
 
-const BANNER: &str = r"
+pub const BANNER: &str = r"
  _____ _   _ ____  ___ _   _  ____
 |_   _| | | |  _ \|_ _| \ | |/ ___|
   | | | | | | |_) || ||  \| | |  _
@@ -35,6 +36,7 @@ pub fn setup_initramfs() -> anyhow::Result<()> {
         (None, "/dev", "devtmpfs"),
         (None, "/proc", "proc"),
         (None, "/sys", "sysfs"),
+        (None, "/sys/kernel/config", "configfs"),
     ] {
         let path = Path::new(mount_path);
 
@@ -58,6 +60,28 @@ pub fn setup_initramfs() -> anyhow::Result<()> {
     }
 
     Ok(())
+}
+
+pub fn get_ubi_volumes<'a>(
+    rootfs: &'a mut dyn Read,
+    rootfs_size: u64,
+) -> Vec<Box<dyn Volume + 'a>> {
+    // Define the UBI image
+    vec![
+        Box::new(
+            BasicVolume::new(VolType::Dynamic)
+                .id(0)
+                .name("uboot-env")
+                .size(65536),
+        ),
+        Box::new(
+            BasicVolume::new(VolType::Static)
+                .name("rootfs")
+                .skipcheck() // Opening the volume at boot takes ~10sec. longer without this flag
+                .size(rootfs_size)
+                .image(rootfs),
+        ),
+    ]
 }
 
 /// Sleep until the user cuts power.
@@ -84,22 +108,7 @@ pub fn upgrade_bmc(
     // Locate the rootfs and bootloader to be written
     let rootfs_size = image::erofs_size(&mut rootfs)?;
 
-    // Define the UBI image
-    let ubi_volumes: Vec<Box<dyn Volume + '_>> = vec![
-        Box::new(
-            BasicVolume::new(VolType::Dynamic)
-                .id(0)
-                .name("uboot-env")
-                .size(65536),
-        ),
-        Box::new(
-            BasicVolume::new(VolType::Static)
-                .name("rootfs")
-                .skipcheck() // Opening the volume at boot takes ~10sec. longer without this flag
-                .size(rootfs_size)
-                .image(&mut rootfs),
-        ),
-    ];
+    let ubi_volumes = get_ubi_volumes(&mut rootfs, rootfs_size);
 
     // These are the tasks to be run once the user confirms the operation:
     struct TaskCtx<'a, N: Nand, R: Read> {
@@ -148,6 +157,7 @@ pub fn upgrade_bmc(
 
     pre_upgrade();
 
+    let _ = led_tx.send(led::LED_BUSY);
     // ...go!
     howudoin::init(howudoin::consumers::TermLine::default());
     let rpt = howudoin::new()
@@ -161,7 +171,6 @@ pub fn upgrade_bmc(
         ubi_volumes,
         bootloader,
     };
-    let _ = led_tx.send(led::LED_BUSY);
     for (desc, task) in tasks {
         ctx.rpt.desc(desc);
         ctx.rpt.inc();

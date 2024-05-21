@@ -1,3 +1,4 @@
+#![feature(cursor_remaining)]
 pub mod format;
 pub mod image;
 pub mod nand;

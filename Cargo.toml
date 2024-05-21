@@ -6,7 +6,9 @@ edition = "2021"
 license = "Apache-2.0"
 
 [dependencies]
-anyhow = "1.0.83"
+anyhow = "1.0.86"
+aw-fel = "*"
+bytes = "1.6.0"
 clap = { version = "4.5.4", features = ["derive"] }
 crc = "3.2.1"
 deku = "0.15.0"
@@ -16,4 +18,8 @@ i2c-linux = "0.1.2"
 income = "0.1.0"
 nix = "0.28.0"
 retry = "2.0.0"
+thiserror = "1.0.61"
 usb-gadget = "0.7.1"
+
+[patch.crates-io]
+aw-fel = { path = "/home/svenr/aw-fel-rs", version="*" }
