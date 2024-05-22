@@ -539,10 +539,13 @@ fn main() -> ! {
         }),
     ];
 
-    // Ready...
-    eprintln!("{INSTRUCTIONS}");
-    let _ = led_tx.send(led::LED_READY);
-    wait_for_confirmation();
+    let cmdline = fs::read_to_string("/proc/cmdline").unwrap_or_default();
+    if !cmdline.contains("skip_confirmation") {
+        // Ready...
+        eprintln!("{INSTRUCTIONS}");
+        let _ = led_tx.send(led::LED_READY);
+        wait_for_confirmation();
+    }
 
     // ...go!
     howudoin::init(howudoin::consumers::TermLine::default());
