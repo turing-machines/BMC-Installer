@@ -287,7 +287,7 @@ where
     // Begin ubinizing volumes
     let mut ubinizer = Ubinizer::new(volumes, eb_size);
     let vid_size = layout.bytes_per_page;
-    let mut data = Vec::with_capacity(u32::try_from(eb_size).unwrap() as usize + vid_size);
+    let mut data = Vec::with_capacity(u32::from(eb_size) as usize + vid_size);
     data.resize(vid_size, 0u8);
 
     // Iterate over all logical blocks provided by the Ubinizer
